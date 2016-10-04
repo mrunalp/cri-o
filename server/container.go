@@ -9,6 +9,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/kubernetes-incubator/cri-o/oci"
 	"github.com/kubernetes-incubator/cri-o/utils"
+	"github.com/opencontainers/runc/libcontainer/label"
 	"github.com/opencontainers/runtime-tools/generate"
 	"golang.org/x/net/context"
 	pb "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
@@ -135,8 +136,9 @@ func (s *Server) createSandboxContainer(name string, sb *sandbox, SandboxConfig 
 			options = "ro"
 		}
 
-		//TODO(hmeng): how to use this info? Do we need to handle relabel a FS with Selinux?
-		//selinuxRelabel := mount.GetSelinuxRelabel()
+		if mount.GetSelinuxRelabel() {
+			label.Relabel(src, "fix-me", true)
+		}
 
 		specgen.AddBindMount(src, dest, options)
 
