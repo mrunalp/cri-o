@@ -213,9 +213,11 @@ int main(int argc, char *argv[])
 		 * everything.
 		 *
 		 * TODO: Maybe this should be done with pipe(2)s?
-		 */
-		if (socketpair(AF_LOCAL, SOCK_STREAM, 0, fds) < 0)
+		 *if (socketpair(AF_LOCAL, SOCK_STREAM, 0, fds) < 0)
 			pexit("Failed to create runtime_mfd socketpair");
+		 */
+		if (pipe(fds) < 0)
+			pexit("Failed to create pipe");
 
 		mfd = fds[0];
 		runtime_mfd = fds[1];
