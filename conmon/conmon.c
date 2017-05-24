@@ -301,6 +301,7 @@ int main(int argc, char *argv[])
 	int ret, runtime_status;
 	char cwd[PATH_MAX];
 	char default_pid_file[PATH_MAX];
+	char attach_sock_path[PATH_MAX];
 	GError *err = NULL;
 	_cleanup_free_ char *contents;
 	int cpid = -1;
@@ -309,11 +310,13 @@ int main(int argc, char *argv[])
 	_cleanup_close_ int logfd = -1;
 	_cleanup_close_ int masterfd_stdout = -1;
 	_cleanup_close_ int masterfd_stderr = -1;
+	_cleanup_close_ int masterfd_stdin = -1;
 	_cleanup_close_ int epfd = -1;
 	_cleanup_close_ int csfd = -1;
 	/* Used for !terminal cases. */
 	int slavefd_stdout = -1;
 	int slavefd_stderr = -1;
+	int slavefd_stdin = -1;
 	char csname[PATH_MAX] = "/tmp/conmon-term.XXXXXXXX";
 	char buf[BUF_SIZE];
 	int num_read;
@@ -334,6 +337,9 @@ int main(int argc, char *argv[])
 	_cleanup_free_ char *memory_cgroup_path = NULL;
 	int wb;
 	uint64_t oom_event;
+
+	/* Used for attach */
+	_cleanup_close_ int conn_sock = -1;
 
 	/* Command line parameters */
 	context = g_option_context_new("- conmon utility");
@@ -442,6 +448,17 @@ int main(int argc, char *argv[])
 
 		masterfd_stderr = fds[0];
 		slavefd_stderr = fds[1];
+
+	}
+
+	/* Create a pipe to attach to the container process stdin. */
+	if (!terminal && !exec) {
+		int fds[2];
+		if (pipe(fds) < 0)
+			pexit("Failed to create !terminal stderr pipe");
+
+		masterfd_stdin = fds[0];
+		slavefd_stdin = fds[1];
 	}
 
 	cmd = g_string_new(runtime_path);
@@ -499,6 +516,11 @@ int main(int argc, char *argv[])
 		if (slavefd_stderr >= 0) {
 			if (dup2(slavefd_stderr, STDERR_FILENO) < 0)
 				pexit("Failed to dup over stderr");
+		}
+
+		if (slavefd_stdin >= 0) {
+			if (dup2(slavefd_stderr, STDERR_FILENO) < 0)
+				pexit("Failed to dup over stdin");
 		}
 
 		/* Exec into the process. TODO: Don't use the shell. */
@@ -615,6 +637,40 @@ int main(int argc, char *argv[])
 	cpid = atoi(contents);
 	ninfo("container PID: %d", cpid);
 
+	/* Setup endpoint for attach */
+	struct sockaddr_un attach_addr = {0};
+	_cleanup_close_ int afd = -1;
+	int asfd = -1;
+
+	if (!exec) {
+		attach_addr.sun_family = AF_UNIX;
+		snprintf(attach_sock_path, PATH_MAX, "/var/run/%s-attach", cid);
+		ninfo("attach sock path: %s", attach_sock_path);
+
+		asfd = open(attach_sock_path, O_CREAT|O_WRONLY);
+		if (asfd == -1) {
+			pexit("Failed to create attach socket file");
+		}
+		close(asfd);
+
+		strncpy(attach_addr.sun_path, attach_sock_path, sizeof(attach_addr.sun_path) - 1);
+		ninfo("addr{sun_family=AF_UNIX, sun_path=%s}", attach_addr.sun_path);
+
+		afd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (afd == -1)
+			pexit("Failed to create attach socket");
+
+		if (unlink(attach_sock_path) == -1 && errno != ENOENT) {
+			pexit("Failed to remove socket file");
+		}
+
+		if (bind(afd, (struct sockaddr *)&attach_addr, sizeof(struct sockaddr_un)) == -1)
+			pexit("Failed to bind attach socket: %s", attach_sock_path);
+
+		if (listen(afd, 10) == -1)
+			pexit("Failed to listen on attach socket: %s", attach_sock_path);
+	}
+
 	/* Send the container pid back to parent */
 	if (sync_pipe_fd > 0 && !exec) {
 		len = snprintf(buf, BUF_SIZE, "{\"pid\": %d}\n", cpid);
@@ -680,6 +736,11 @@ int main(int argc, char *argv[])
 			pexit("Failed to add OOM eventfd to epoll");
 	}
 
+	/* Add the attach socket to epoll */
+	ev.data.fd = afd;
+	if (epoll_ctl(epfd, EPOLL_CTL_ADD, ev.data.fd, &ev) < 0)
+		pexit("Failed to add attach socket fd to epoll");
+
 	/* Log all of the container's output. */
 	while (num_stdio_fds > 0) {
 		int ready = epoll_wait(epfd, evlist, MAX_EVENTS, -1);
@@ -701,10 +762,29 @@ int main(int argc, char *argv[])
 					if (open("oom", O_CREAT, 0666) < 0) {
 						nwarn("Failed to write oom file");
 					}
+				} else if (evlist[i].data.fd == afd) {
+					conn_sock = accept(afd, NULL, NULL);
+					if (conn_sock == -1) {
+						pexit("Failed to accept client connection on attach socket");
+					}
+					ev.events = EPOLLIN;
+					ev.data.fd = conn_sock;
+					if (epoll_ctl(epfd, EPOLL_CTL_ADD, ev.data.fd, &ev) == -1) {
+						pexit("Failed to add client socket fd to epoll");
+					}
+					ninfo("Accepted connection");
 				}
 				else {
-					nwarn("unknown pipe fd");
-					goto out;
+					num_read = read(masterfd, buf, BUF_SIZE);
+					if (num_read <= 0)
+						goto out;
+					ninfo("got data on connection: %d", num_read);
+					if (terminal) {
+						if (write(masterfd_stdout, buf, num_read) < 0) {
+							nwarn("failed to write to master pty");
+						}
+						ninfo("Wrote to master pty");
+					}
 				}
 
 				if (masterfd == masterfd_stdout || masterfd == masterfd_stderr) {
@@ -715,6 +795,13 @@ int main(int argc, char *argv[])
 					if (write_k8s_log(logfd, pipe, buf, num_read) < 0) {
 						nwarn("write_k8s_log failed");
 						goto out;
+					}
+
+					if (conn_sock > 0) {
+						if (write(conn_sock, buf, num_read) < 0) {
+							nwarn("failed to write to socket");
+						}
+						ninfo("Wrote to client");
 					}
 				}
 			} else if (evlist[i].events & (EPOLLHUP | EPOLLERR)) {
@@ -773,6 +860,12 @@ out:
 		if (len < 0 || write(sync_pipe_fd, buf, len) != len) {
 			pexit("unable to send exit status");
 			exit(1);
+		}
+	}
+
+	if (!exec) {
+		if (unlink(attach_sock_path) == -1 && errno != ENOENT) {
+			pexit("Failed to remove socket file");
 		}
 	}
 
