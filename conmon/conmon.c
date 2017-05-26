@@ -656,7 +656,12 @@ int main(int argc, char *argv[])
 		strncpy(attach_addr.sun_path, attach_sock_path, sizeof(attach_addr.sun_path) - 1);
 		ninfo("addr{sun_family=AF_UNIX, sun_path=%s}", attach_addr.sun_path);
 
-		afd = socket(AF_UNIX, SOCK_STREAM, 0);
+		/*
+		 * We make the socket non-blocking to avoid a race where client aborts connection
+		 * before the server gets a chance to call accept. In that scenario, the server
+		 * accept blocks till a new client connection comes in.
+		 */
+		afd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
 		if (afd == -1)
 			pexit("Failed to create attach socket");
 
@@ -765,7 +770,8 @@ int main(int argc, char *argv[])
 				} else if (evlist[i].data.fd == afd) {
 					conn_sock = accept(afd, NULL, NULL);
 					if (conn_sock == -1) {
-						pexit("Failed to accept client connection on attach socket");
+						nwarn("Failed to accept client connection on attach socket");
+						continue;
 					}
 					ev.events = EPOLLIN;
 					ev.data.fd = conn_sock;
