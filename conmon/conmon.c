@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/eventfd.h>
+#include <sys/ioctl.h>
 #include <syslog.h>
 #include <unistd.h>
 
@@ -684,6 +685,8 @@ int main(int argc, char *argv[])
 	int ctl_msg_type = -1;
 	int height = -1;
 	int width = -1;
+	struct winsize ws;
+
 	snprintf(ctl_fifo_path, PATH_MAX, "%s/ctl", bundle_path);
 	ninfo("ctl fifo path: %s", ctl_fifo_path);
 
@@ -828,6 +831,14 @@ int main(int argc, char *argv[])
 						continue;
 					}
 					ninfo("Message type: %d, Height: %d, Width: %d", ctl_msg_type, height, width);
+					if (terminal) {
+						ws.ws_row = height;
+						ws.ws_col = width;
+						ret = ioctl(masterfd_stdout, TIOCSWINSZ, &ws);
+						if (ret == -1) {
+							pexit("Failed to set process pty terminal size");
+						}
+					}
 				} else {
 					num_read = read(masterfd, buf, BUF_SIZE);
 					if (num_read <= 0)
