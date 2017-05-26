@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -28,7 +30,8 @@ func (s *Server) Attach(ctx context.Context, req *pb.AttachRequest) (*pb.AttachR
 }
 
 // Attach endpoint for streaming.Runtime
-func (ss streamService) AttachContainer(containerID string, cmd []string, stdin io.Reader, stdout, stderr io.WriteCloser, tty bool, resize <-chan term.Size) error {
+func (ss streamService) Attach(containerID string, inputStream io.Reader, outputStream, errorStream io.WriteCloser, tty bool, resize <-chan term.Size) error {
+	fmt.Println(containerID, inputStream, outputStream, errorStream, tty, resize)
 	c := ss.runtimeServer.state.containers.Get(containerID)
 
 	if err := ss.runtimeServer.runtime.UpdateStatus(c); err != nil {
@@ -49,9 +52,56 @@ func (ss streamService) AttachContainer(containerID string, cmd []string, stdin 
 	kubecontainer.HandleResizing(resize, func(size term.Size) {
 		_, err := fmt.Fprintf(controlFile, "%d %d %d\n", 1, size.Height, size.Width)
 		if err != nil {
-			logrus.Errorf("Failed to write to control file: %v", err)
+			logrus.Errorf("Failed to write to control file to resize terminal: %v", err)
 		}
 	})
 
+	attachSocketPath := filepath.Join("/var/run", fmt.Sprintf("%s-attach", c.Name()))
+	conn, err := net.Dial("unix", attachSocketPath)
+	if err != nil {
+		return fmt.Errorf("failed to connect to container %s attach socket: %v", c.ID(), err)
+	}
+	defer conn.Close()
+
+	receiveStdout := make(chan error)
+	if outputStream != nil || errorStream != nil {
+		go func() {
+			receiveStdout <- redirectResponseToOutputStream(tty, outputStream, errorStream, conn)
+		}()
+	}
+
+	stdinDone := make(chan struct{})
+	go func() {
+		if inputStream != nil {
+			io.Copy(conn, inputStream)
+		}
+		close(stdinDone)
+	}()
+
+	select {
+	case err := <-receiveStdout:
+		return err
+	case <-stdinDone:
+		if outputStream != nil || errorStream != nil {
+			return <-receiveStdout
+		}
+	}
+
 	return nil
+}
+
+func redirectResponseToOutputStream(tty bool, outputStream, errorStream io.Writer, conn net.Conn) error {
+	if outputStream == nil {
+		outputStream = ioutil.Discard
+	}
+	if errorStream == nil {
+		errorStream = ioutil.Discard
+	}
+	var err error
+	if tty {
+		_, err = io.Copy(outputStream, conn)
+	} else {
+		//_, err = dockerstdcopy.StdCopy(outputStream, errorStream, resp)
+	}
+	return err
 }
