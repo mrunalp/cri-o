@@ -50,9 +50,10 @@ func (ss streamService) Attach(containerID string, inputStream io.Reader, output
 	}
 
 	kubecontainer.HandleResizing(resize, func(size term.Size) {
+		logrus.Infof("Got a resize event: %+v", size)
 		_, err := fmt.Fprintf(controlFile, "%d %d %d\n", 1, size.Height, size.Width)
 		if err != nil {
-			logrus.Errorf("Failed to write to control file to resize terminal: %v", err)
+			logrus.Infof("Failed to write to control file to resize terminal: %v", err)
 		}
 	})
 

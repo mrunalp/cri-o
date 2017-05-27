@@ -41,11 +41,13 @@
 #define nwarn(fmt, ...)                                                        \
 	do {                                                                   \
 		fprintf(stderr, "[conmon:w]: " fmt "\n", ##__VA_ARGS__);       \
+		syslog(LOG_INFO, "conmon <nwarn>: " fmt " \n", ##__VA_ARGS__); \
 	} while (0)
 
 #define ninfo(fmt, ...)                                                        \
 	do {                                                                   \
 		fprintf(stderr, "[conmon:i]: " fmt "\n", ##__VA_ARGS__);       \
+		syslog(LOG_INFO, "conmon <ninfo>: " fmt " \n", ##__VA_ARGS__); \
 	} while (0)
 
 #define _cleanup_(x) __attribute__((cleanup(x)))
@@ -831,14 +833,15 @@ int main(int argc, char *argv[])
 						continue;
 					}
 					ninfo("Message type: %d, Height: %d, Width: %d", ctl_msg_type, height, width);
-					if (terminal) {
-						ws.ws_row = height;
-						ws.ws_col = width;
-						ret = ioctl(masterfd_stdout, TIOCSWINSZ, &ws);
-						if (ret == -1) {
-							pexit("Failed to set process pty terminal size");
-						}
+					ret = ioctl(masterfd_stdout, TIOCGWINSZ, &ws);
+					ninfo("Existing size: %d %d", ws.ws_row, ws.ws_col);
+					ws.ws_row = height;
+					ws.ws_col = width;
+					ret = ioctl(masterfd_stdout, TIOCSWINSZ, &ws);
+					if (ret == -1) {
+						pexit("Failed to set process pty terminal size");
 					}
+					ninfo("Set ioctl on master pty");
 				} else {
 					num_read = read(masterfd, buf, BUF_SIZE);
 					if (num_read <= 0)
