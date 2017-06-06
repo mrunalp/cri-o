@@ -19,6 +19,7 @@
 #include <sys/uio.h>
 #include <sys/ioctl.h>
 #include <syslog.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <glib.h>
@@ -291,6 +292,7 @@ int write_k8s_log(int fd, stdpipe_t pipe, const char *buf, ssize_t buflen)
 	while (buflen > 0) {
 		const char *line_end = NULL;
 		ptrdiff_t line_len = 0;
+		ptrdiff_t write_len = 0;
 
 		/* Find the end of the line, or alternatively the end of the buffer. */
 		line_end = memchr(buf, '\n', buflen);
@@ -319,10 +321,40 @@ int write_k8s_log(int fd, stdpipe_t pipe, const char *buf, ssize_t buflen)
 			}
 		}
 
-		/* Output the actual contents. */
-		if (writev_buffer_append_segment(fd, &bufv, buf, line_len) < 0) {
-			nwarn("failed to write buffer to log");
-			goto next;
+		write_len = line_len;
+
+		/*
+		 * We need to remove \r from a \r\n sequence while writing to the file.
+		 * This can be taken out once kubernetes enables OPOST in the client.
+		 */
+		if (*line_end == '\n' && line_len > 1) {
+			line_end--;
+			if (*line_end == '\r') {
+				write_len = line_len - 2;
+				if (writev_buffer_append_segment(fd, &bufv, buf, write_len) < 0) {
+					nwarn("failed to write buffer to log");
+					goto next;
+				}
+				if (writev_buffer_append_segment(fd, &bufv, "\n", -1) < 0) {
+					nwarn("failed to write buffer to log");
+					goto next;
+				}
+			}
+		} else if (*line_end == '\r') {
+			/*
+			 * If we didn't find a \n but the last char in the buffer is a \r,
+			 * we assume that the next char will be a \n and take it out.
+			 */
+			write_len = line_len - 1;
+			if (writev_buffer_append_segment(fd, &bufv, buf, write_len) < 0) {
+				nwarn("failed to write buffer to log");
+				goto next;
+			}
+		} else {
+			if (writev_buffer_append_segment(fd, &bufv, buf, write_len) < 0) {
+				nwarn("failed to write buffer to log");
+				goto next;
+			}
 		}
 
 		/* If we did not output a full line, then we are a trailing_line. */
@@ -677,6 +709,7 @@ int main(int argc, char *argv[])
 	if (terminal) {
 		struct file_t console;
 		int connfd = -1;
+		struct termios tset;
 
 		ninfo("about to accept from csfd: %d", csfd);
 		connfd = accept4(csfd, NULL, NULL, SOCK_CLOEXEC);
@@ -693,6 +726,15 @@ int main(int argc, char *argv[])
 
 		ninfo("console = {.name = '%s'; .fd = %d}", console.name, console.fd);
 		free(console.name);
+
+		/* We change the terminal settings to match kube settings */
+		if (tcgetattr(console.fd, &tset) == -1)
+			pexit("Failed to get console terminal settings");
+
+		tset.c_oflag |= ONLCR;
+
+		if (tcsetattr(console.fd, TCSANOW, &tset) == -1)
+			pexit("Failed to set console terminal settings");
 
 		/* We only have a single fd for both pipes, so we just treat it as
 		 * stdout. stderr is ignored. */
