@@ -19,6 +19,7 @@
 #include <sys/uio.h>
 #include <sys/ioctl.h>
 #include <syslog.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <glib.h>
@@ -677,6 +678,7 @@ int main(int argc, char *argv[])
 	if (terminal) {
 		struct file_t console;
 		int connfd = -1;
+		struct termios tset;
 
 		ninfo("about to accept from csfd: %d", csfd);
 		connfd = accept4(csfd, NULL, NULL, SOCK_CLOEXEC);
@@ -693,6 +695,15 @@ int main(int argc, char *argv[])
 
 		ninfo("console = {.name = '%s'; .fd = %d}", console.name, console.fd);
 		free(console.name);
+
+		/* We change the terminal settings to match kube settings */
+		if (tcgetattr(console.fd, &tset) == -1)
+			pexit("Failed to get console terminal settings");
+
+		tset.c_oflag |= ONLCR;
+
+		if (tcsetattr(console.fd, TCSANOW, &tset) == -1)
+			pexit("Failed to set console terminal settings");
 
 		/* We only have a single fd for both pipes, so we just treat it as
 		 * stdout. stderr is ignored. */
