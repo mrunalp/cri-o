@@ -5,8 +5,8 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -107,6 +107,7 @@ static bool opt_exec = false;
 static char *opt_log_path = NULL;
 static char *opt_exit_dir = NULL;
 static int opt_timeout = 0;
+static int64_t opt_log_size_max = -1;
 static GOptionEntry opt_entries[] =
 {
   { "terminal", 't', 0, G_OPTION_ARG_NONE, &opt_terminal, "Terminal", NULL },
@@ -122,6 +123,7 @@ static GOptionEntry opt_entries[] =
   { "exit-dir", 0, 0, G_OPTION_ARG_STRING, &opt_exit_dir, "Path to the directory where exit files are written", NULL },
   { "log-path", 'l', 0, G_OPTION_ARG_STRING, &opt_log_path, "Log file path", NULL },
   { "timeout", 'T', 0, G_OPTION_ARG_INT, &opt_timeout, "Timeout in seconds", NULL },
+  { "log-size-max", 0, 0, G_OPTION_ARG_INT64, &opt_log_size_max, "Maximum size of log file", NULL },
   { NULL }
 };
 
