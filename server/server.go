@@ -190,6 +190,7 @@ func New(config *Config) (*Server, error) {
 	if err := os.MkdirAll(config.ContainerExitsDir, 0755); err != nil {
 		return nil, err
 	}
+
 	containerServer, err := libkpod.New(&config.Config)
 	if err != nil {
 		return nil, err

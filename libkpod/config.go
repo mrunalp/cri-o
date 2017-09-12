@@ -145,6 +145,12 @@ type RuntimeConfig struct {
 	// by the cgroup process number controller.
 	PidsLimit int64 `toml:"pids_limit"`
 
+	// LogSizeMax is the maximum number of bytes after which the log file
+	// will be truncated. It can be expressed as a human-friendly string
+	// that is parsed to bytes.
+	// Negative values indicate that the log file won't be truncated.
+	LogSizeMax int64 `toml:"log_size_max"`
+
 	// ContainerExitsDir is the directory in which container exit files are
 	// written to by conmon.
 	ContainerExitsDir string `toml:"container_exits_dir"`
@@ -274,6 +280,7 @@ func DefaultConfig() *Config {
 			PidsLimit:         DefaultPidsLimit,
 			ContainerExitsDir: containerExitsDir,
 			HooksDirPath:      DefaultHooksDirPath,
+			LogSizeMax:        -1,
 		},
 		ImageConfig: ImageConfig{
 			DefaultTransport:    defaultTransport,
