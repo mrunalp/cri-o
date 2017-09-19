@@ -133,6 +133,8 @@ static GOptionEntry opt_entries[] =
 
 #define CGROUP_ROOT "/sys/fs/cgroup"
 
+static int log_fd = -1;
+
 static ssize_t write_all(int fd, const void *buf, size_t count)
 {
 	size_t remaining = count;
@@ -284,7 +286,7 @@ const char *stdpipe_name(stdpipe_t pipe)
  * line in buf, and will partially write the final line of the log if buf is
  * not terminated by a newline.
  */
-int write_k8s_log(int fd, stdpipe_t pipe, const char *buf, ssize_t buflen)
+static int write_k8s_log(int fd, stdpipe_t pipe, const char *buf, ssize_t buflen)
 {
 	char tsbuf[TSBUFLEN];
 	static stdpipe_t trailing_line = NO_PIPE;
@@ -335,6 +337,32 @@ int write_k8s_log(int fd, stdpipe_t pipe, const char *buf, ssize_t buflen)
 			}
 		}
 
+		/*
+		 * We re-open the log file if writing out the bytes will exceed the max
+		 * log size. We also reset the state so that the new file is started with
+		 * a timestamp.
+		 */
+		if ((bytes_written + bytes_to_be_written) > opt_log_size_max) {
+			ninfo("Creating new log file");
+			insert_newline = FALSE;
+			insert_timestamp = TRUE;
+			bytes_written = 0;
+
+			/* Close the existing fd */
+			close(fd);
+
+			/* Unlink the file */
+			if (unlink(opt_log_path) < 0) {
+				pexit("Failed to unlink log file");
+			}
+
+			/* Open the log path file again */
+			log_fd = open(opt_log_path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
+			if (log_fd < 0)
+				pexit("Failed to open log file");
+			fd = log_fd;
+		}
+
 		/* Output a newline */
 		if (insert_newline) {
 			if (writev_buffer_append_segment(fd, &bufv, "\n", -1) < 0) {
@@ -357,6 +385,8 @@ int write_k8s_log(int fd, stdpipe_t pipe, const char *buf, ssize_t buflen)
 			goto next;
 		}
 
+		bytes_written += bytes_to_be_written;
+
 		/* If we did not output a full line, then we are a trailing_line. */
 		trailing_line = (*line_end == '\n') ? NO_PIPE : pipe;
 
@@ -370,7 +400,6 @@ next:
 		nwarn("failed to flush buffer to log");
 	}
 
-	bytes_written += bytes_to_be_written;
 	ninfo("Total bytes written: %"PRId64"", bytes_written);
 
 	return 0;
@@ -508,7 +537,6 @@ static int conn_sock = -1;
 static int conn_sock_readable;
 static int conn_sock_writable;
 
-static int log_fd = -1;
 static int oom_event_fd = -1;
 static int attach_socket_fd = -1;
 static int console_socket_fd = -1;
