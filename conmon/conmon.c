@@ -342,7 +342,7 @@ static int write_k8s_log(int fd, stdpipe_t pipe, const char *buf, ssize_t buflen
 		 * log size. We also reset the state so that the new file is started with
 		 * a timestamp.
 		 */
-		if ((bytes_written + bytes_to_be_written) > opt_log_size_max) {
+		if ((opt_log_size_max > 0) && (bytes_written + bytes_to_be_written) > opt_log_size_max) {
 			ninfo("Creating new log file");
 			insert_newline = FALSE;
 			insert_timestamp = TRUE;
