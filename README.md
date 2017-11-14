@@ -242,5 +242,5 @@ To run a full cluster, see [the instructions](kubernetes.md).
 1. Basic integration with kubelet once client side changes are ready (done)
 1. Support for log management, networking integration using CNI, pluggable image/storage management (done)
 1. Support for exec/attach (done)
-1. Target fully automated kubernetes testing without failures [e2e status](https://github.com/kubernetes-incubator/cri-o/issues/533)
+1. Target fully automated kubernetes testing without failures (done)
 1. Track upstream k8s releases
