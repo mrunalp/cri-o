@@ -76,6 +76,7 @@ type ContainerState struct {
 	ExitCode  int32     `json:"exitCode,omitempty"`
 	OOMKilled bool      `json:"oomKilled,omitempty"`
 	Error     string    `json:"error,omitempty"`
+	ConmonPid int       `json:"conmonPid,omitempty`
 }
 
 // NewContainer creates a container object.

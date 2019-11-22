@@ -156,6 +156,9 @@ func (r *runtimeOCI) CreateContainer(c *Container, cgroupParent string) (err err
 	// Platform specific container setup
 	r.createContainerPlatform(c, cgroupParent, cmd.Process.Pid)
 
+	// Store the conmon pid for a container
+	c.state.ConmonPid = cmd.Process.Pid
+
 	/* We set the cgroup, now the child can start creating children */
 	someData := []byte{0}
 	_, err = parentStartPipe.Write(someData)
