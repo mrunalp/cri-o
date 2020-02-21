@@ -20,7 +20,7 @@ require (
 	github.com/containers/storage v1.15.8
 	github.com/coreos/go-systemd/v22 v22.0.0
 	github.com/cpuguy83/go-md2man v1.0.10
-	github.com/cri-o/ocicni v0.1.1-0.20191204151446-e25b504ca708
+	github.com/cri-o/ocicni v0.1.1-0.20200218164758-d2881573038f
 	github.com/docker/docker v1.4.2-0.20200203170920-46ec8731fbce
 	github.com/docker/go-units v0.4.0
 	github.com/fsnotify/fsnotify v1.4.7
