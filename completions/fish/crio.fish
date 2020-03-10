@@ -81,6 +81,7 @@ complete -r -c crio -n '__fish_crio_no_subcommand' -a 'config' -d 'generate crio
 complete -c crio -n '__fish_seen_subcommand_from config' -f -l default -d 'output the default configuration'
 complete -c crio -n '__fish_seen_subcommand_from wipe' -f -l help -s h -d 'show help'
 complete -r -c crio -n '__fish_crio_no_subcommand' -a 'wipe' -d 'wipe CRI-O\'s container and image storage'
+complete -c crio -n '__fish_seen_subcommand_from wipe' -f -l force -d 'force wipe by skipping the version check'
 complete -c crio -n '__fish_seen_subcommand_from complete completion' -f -l help -s h -d 'show help'
 complete -r -c crio -n '__fish_crio_no_subcommand' -a 'complete completion' -d 'Output shell completion code'
 complete -c crio -n '__fish_seen_subcommand_from help h' -f -l help -s h -d 'show help'
