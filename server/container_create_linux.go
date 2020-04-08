@@ -803,6 +803,9 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 		specgen.AddAnnotation("org.opencontainers.image.stopSignal", containerImageConfig.Config.StopSignal)
 	}
 
+	// HACK: Test if this fixes curl nss leak
+	specgen.AddProcessEnv("NSS_SDB_USE_CACHE", "no")
+
 	// Add environment variables from image the CRI configuration
 	envs := mergeEnvs(containerImageConfig, containerConfig.GetEnvs())
 	for _, e := range envs {
